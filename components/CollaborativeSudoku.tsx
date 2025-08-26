@@ -16,34 +16,26 @@ export default function CollaborativeSudoku() {
   const [joinCode, setJoinCode] = useState<string>('');
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [solution, setSolution] = useState<number[][]>([]);
+  const [seed, setSeed] = useState<string>('');
 
-  const shuffle = (array: number[]) => {
-    for (let i = array.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [array[i], array[j]] = [array[j], array[i]];
-    }
-    return array;
-  };
+  const generateSudokuWithSeed = (difficulty: 'easy' | 'medium' | 'hard', seed: string) => {
+    const seededRandom = () => {
+      const x = Math.sin(Number(seed)) * 10000;
+      seed = (Number(seed) * 1234567).toString();
+      return x - Math.floor(x);
+    };
 
-  const isValidPlacement = (board: number[][], num: number, row: number, col: number): boolean => {
-    for (let x = 0; x < 9; x++) {
-      if (board[row][x] === num || board[x][col] === num) return false;
-    }
-    
-    const boxRow = Math.floor(row / 3) * 3;
-    const boxCol = Math.floor(col / 3) * 3;
-    for (let i = 0; i < 3; i++) {
-      for (let j = 0; j < 3; j++) {
-        if (board[boxRow + i][boxCol + j] === num) return false;
+    const seededShuffle = (array: number[]) => {
+      const shuffled = [...array];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(seededRandom() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
-    }
-    
-    return true;
-  };
+      return shuffled;
+    };
 
-  const generateSudoku = (difficulty: 'easy' | 'medium' | 'hard') => {
     const board = Array(9).fill(null).map(() => Array(9).fill(0));
-    const numbers = shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const numbers = seededShuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     board[0] = [...numbers];
 
     const solve = (row = 1, col = 0): boolean => {
@@ -51,7 +43,7 @@ export default function CollaborativeSudoku() {
       if (col === 9) return solve(row + 1, 0);
       if (board[row][col] !== 0) return solve(row, col + 1);
       
-      const nums = shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      const nums = seededShuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]);
       for (const num of nums) {
         if (isValidPlacement(board, num, row, col)) {
           board[row][col] = num;
@@ -72,30 +64,64 @@ export default function CollaborativeSudoku() {
       hard: 55
     }[difficulty];
 
-    let removed = 0;
-    while (removed < cellsToRemove) {
-      const row = Math.floor(Math.random() * 9);
-      const col = Math.floor(Math.random() * 9);
-      
-      if (board[row][col] !== 0) {
-        board[row][col] = 0;
-        removed++;
-      }
+    const cellsToRemoveOrder = Array(81).fill(0).map((_, i) => i)
+      .sort(() => seededRandom() - 0.5);
+
+    for (let i = 0; i < cellsToRemove; i++) {
+      const cellIndex = cellsToRemoveOrder[i];
+      const row = Math.floor(cellIndex / 9);
+      const col = cellIndex % 9;
+      board[row][col] = 0;
     }
 
     return board;
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  const isValidPlacement = (board: number[][], num: number, row: number, col: number): boolean => {
+    for (let x = 0; x < 9; x++) {
+      if (board[row][x] === num || board[x][col] === num) return false;
+    }
+    
+    const boxRow = Math.floor(row / 3) * 3;
+    const boxCol = Math.floor(col / 3) * 3;
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        if (board[boxRow + i][boxCol + j] === num) return false;
+      }
+    }
+    
+    return true;
   };
 
-  const handleCellClick = (row: number, col: number) => {
-    if (board[row][col] === 0) {
-      setSelectedCell({ row, col });
+  const handleCreateGame = () => {
+    if (!playerName) {
+      alert('Please enter your name');
+      return;
     }
+    const newGameCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const newSeed = Date.now().toString();
+    setSeed(newSeed);
+    setGameCode(newGameCode);
+    const initialBoard = generateSudokuWithSeed(difficulty, newSeed);
+    setBoard(initialBoard);
+    setGameState('game');
+  };
+
+  const handleJoinGame = () => {
+    if (!playerName) {
+      alert('Please enter your name');
+      return;
+    }
+    if (!joinCode) {
+      alert('Please enter a game code');
+      return;
+    }
+    setGameCode(joinCode);
+    const joinSeed = Date.now().toString();
+    setSeed(joinSeed);
+    const initialBoard = generateSudokuWithSeed(difficulty, joinSeed);
+    setBoard(initialBoard);
+    setGameState('game');
   };
 
   const handleNumberInput = (number: number) => {
@@ -122,35 +148,17 @@ export default function CollaborativeSudoku() {
     }
   };
 
-  const handleCreateGame = () => {
-    if (!playerName) {
-      alert('Please enter your name');
-      return;
+  const handleCellClick = (row: number, col: number) => {
+    if (board[row][col] === 0) {
+      setSelectedCell({ row, col });
     }
-    const newGameCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    setGameCode(newGameCode);
-    const initialBoard = generateSudoku(difficulty);
-    setBoard(initialBoard);
-    setGameState('game');
   };
 
-  const handleJoinGame = () => {
-    if (!playerName) {
-      alert('Please enter your name');
-      return;
-    }
-    if (!joinCode) {
-      alert('Please enter a game code');
-      return;
-    }
-    setGameCode(joinCode);
-    setGameState('game');
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-
-  useEffect(() => {
-    const initialBoard = generateSudoku(difficulty);
-    setBoard(initialBoard);
-  }, []);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
