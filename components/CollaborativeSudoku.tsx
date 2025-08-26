@@ -14,11 +14,21 @@ export default function CollaborativeSudoku() {
   const [playerName, setPlayerName] = useState<string>('');
   const [gameState, setGameState] = useState<'lobby' | 'game'>('lobby');
   const [joinCode, setJoinCode] = useState<string>('');
+  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [solution, setSolution] = useState<number[][]>([]);
 
-  const generateSudoku = () => {
+  const generateSudoku = (difficulty: 'easy' | 'medium' | 'hard') => {
     const base = Array(9).fill(null).map(() => Array(9).fill(0));
     const solution = solveSudoku([...base]);
-    const puzzle = removeCells([...solution]);
+    setSolution(solution);
+    
+    const cellsToRemove = {
+      easy: 30,
+      medium: 40,
+      hard: 50
+    }[difficulty];
+    
+    const puzzle = removeCells([...solution], cellsToRemove);
     return puzzle;
   };
 
@@ -78,18 +88,17 @@ export default function CollaborativeSudoku() {
     return board;
   };
 
-  const removeCells = (board: number[][]) => {
-    const difficulty = 40; // Number of cells to remove
+  const removeCells = (board: number[][], count: number) => {
     const puzzle = [...board].map(row => [...row]);
-    let count = 0;
+    let cellsRemoved = 0;
 
-    while (count < difficulty) {
+    while (cellsRemoved < count) {
       const row = Math.floor(Math.random() * 9);
       const col = Math.floor(Math.random() * 9);
       
       if (puzzle[row][col] !== 0) {
         puzzle[row][col] = 0;
-        count++;
+        cellsRemoved++;
       }
     }
 
@@ -97,7 +106,7 @@ export default function CollaborativeSudoku() {
   };
 
   useEffect(() => {
-    const initialBoard = generateSudoku();
+    const initialBoard = generateSudoku(difficulty);
     setBoard(initialBoard);
   }, []);
 
@@ -118,13 +127,15 @@ export default function CollaborativeSudoku() {
   };
 
   const handleCellClick = (row: number, col: number) => {
-    setSelectedCell({ row, col });
+    if (board[row][col] === 0) {
+      setSelectedCell({ row, col });
+    }
   };
 
   const handleNumberInput = (number: number) => {
     if (!selectedCell) return;
     const { row, col } = selectedCell;
-    const isValid = true;
+    const isValid = solution[row][col] === number;
     
     if (!isValid) {
       setErrors(prev => {
@@ -152,6 +163,8 @@ export default function CollaborativeSudoku() {
     }
     const newGameCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     setGameCode(newGameCode);
+    const initialBoard = generateSudoku(difficulty);
+    setBoard(initialBoard);
     setGameState('game');
   };
 
@@ -180,6 +193,15 @@ export default function CollaborativeSudoku() {
             onChange={(e) => setPlayerName(e.target.value)}
             className="w-full p-2 border rounded"
           />
+          <select
+            value={difficulty}
+            onChange={(e) => setDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}
+            className="w-full p-2 border rounded"
+          >
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+          </select>
           <button
             onClick={handleCreateGame}
             className="w-full p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -218,11 +240,12 @@ export default function CollaborativeSudoku() {
         </div>
       </div>
 
-      <div className="grid grid-cols-9 gap-0 border-2 border-gray-800 p-0">
+      <div className="grid grid-cols-9 gap-0 border-4 border-gray-800 bg-gray-800 p-[2px]">
         {board.map((row, rowIndex) => (
           row.map((cell, colIndex) => {
             const isSelected = selectedCell?.row === rowIndex && selectedCell?.col === colIndex;
             const isPartnerSelected = partnerActiveCell?.row === rowIndex && partnerActiveCell?.col === colIndex;
+            const isInitialCell = cell !== 0;
             
             return (
               <div
@@ -234,11 +257,13 @@ export default function CollaborativeSudoku() {
                              '#ccc'
                 }}
                 className={`
-                  w-10 h-10 flex items-center justify-center cursor-pointer bg-white
-                  border
-                  ${isSelected || isPartnerSelected ? 'border-2' : 'border-[0.5px]'}
-                  ${rowIndex % 3 === 2 && rowIndex !== 8 ? 'border-b-2 border-b-gray-800' : ''}
-                  ${colIndex % 3 === 2 && colIndex !== 8 ? 'border-r-2 border-r-gray-800' : ''}
+                  w-12 h-12 flex items-center justify-center bg-white text-lg font-medium
+                  ${isInitialCell ? 'cursor-not-allowed font-bold' : 'cursor-pointer'}
+                  ${isSelected || isPartnerSelected ? 'border-2' : 'border border-gray-300'}
+                  ${rowIndex % 3 === 0 ? 'border-t-2 border-t-gray-800' : ''}
+                  ${colIndex % 3 === 0 ? 'border-l-2 border-l-gray-800' : ''}
+                  ${rowIndex % 3 === 2 ? 'border-b-2 border-b-gray-800' : ''}
+                  ${colIndex % 3 === 2 ? 'border-r-2 border-r-gray-800' : ''}
                 `}
               >
                 {cell !== 0 && cell}
