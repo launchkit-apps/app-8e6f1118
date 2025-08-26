@@ -15,9 +15,90 @@ export default function CollaborativeSudoku() {
   const [gameState, setGameState] = useState<'lobby' | 'game'>('lobby');
   const [joinCode, setJoinCode] = useState<string>('');
 
+  const generateSudoku = () => {
+    const base = Array(9).fill(null).map(() => Array(9).fill(0));
+    const solution = solveSudoku([...base]);
+    const puzzle = removeCells([...solution]);
+    return puzzle;
+  };
+
+  const solveSudoku = (board: number[][]) => {
+    const find_empty = () => {
+      for (let i = 0; i < 9; i++) {
+        for (let j = 0; j < 9; j++) {
+          if (board[i][j] === 0) return [i, j];
+        }
+      }
+      return null;
+    };
+
+    const valid = (num: number, pos: number[], board: number[][]) => {
+      const [row, col] = pos;
+
+      for (let x = 0; x < 9; x++) {
+        if (board[row][x] === num && col !== x) return false;
+      }
+
+      for (let x = 0; x < 9; x++) {
+        if (board[x][col] === num && row !== x) return false;
+      }
+
+      const box_x = Math.floor(col / 3) * 3;
+      const box_y = Math.floor(row / 3) * 3;
+
+      for (let i = box_y; i < box_y + 3; i++) {
+        for (let j = box_x; j < box_x + 3; j++) {
+          if (board[i][j] === num && i !== row && j !== col) return false;
+        }
+      }
+
+      return true;
+    };
+
+    const solve = () => {
+      const find = find_empty();
+      if (!find) return true;
+
+      const [row, col] = find;
+
+      for (let i = 1; i <= 9; i++) {
+        if (valid(i, [row, col], board)) {
+          board[row][col] = i;
+
+          if (solve()) return true;
+
+          board[row][col] = 0;
+        }
+      }
+
+      return false;
+    };
+
+    solve();
+    return board;
+  };
+
+  const removeCells = (board: number[][]) => {
+    const difficulty = 40; // Number of cells to remove
+    const puzzle = [...board].map(row => [...row]);
+    let count = 0;
+
+    while (count < difficulty) {
+      const row = Math.floor(Math.random() * 9);
+      const col = Math.floor(Math.random() * 9);
+      
+      if (puzzle[row][col] !== 0) {
+        puzzle[row][col] = 0;
+        count++;
+      }
+    }
+
+    return puzzle;
+  };
+
   useEffect(() => {
-    const emptyBoard = Array(9).fill(null).map(() => Array(9).fill(0));
-    setBoard(emptyBoard);
+    const initialBoard = generateSudoku();
+    setBoard(initialBoard);
   }, []);
 
   useEffect(() => {
@@ -137,7 +218,7 @@ export default function CollaborativeSudoku() {
         </div>
       </div>
 
-      <div className="grid grid-cols-9 gap-[1px] bg-gray-300 p-[1px] mb-4">
+      <div className="grid grid-cols-9 gap-0 border-2 border-gray-800 p-0">
         {board.map((row, rowIndex) => (
           row.map((cell, colIndex) => {
             const isSelected = selectedCell?.row === rowIndex && selectedCell?.col === colIndex;
@@ -148,15 +229,16 @@ export default function CollaborativeSudoku() {
                 key={`${rowIndex}-${colIndex}`}
                 onClick={() => handleCellClick(rowIndex, colIndex)}
                 style={{
-                  border: isSelected ? `2px solid ${playerColor}` :
-                         isPartnerSelected ? `2px solid ${partnerActiveCell.color}` :
-                         '1px solid #ccc',
-                  backgroundColor: 'white'
+                  borderColor: isSelected ? playerColor :
+                             isPartnerSelected ? partnerActiveCell.color :
+                             '#ccc'
                 }}
                 className={`
-                  w-10 h-10 flex items-center justify-center cursor-pointer
-                  ${(rowIndex + 1) % 3 === 0 && 'border-b-2 border-b-gray-800'}
-                  ${(colIndex + 1) % 3 === 0 && 'border-r-2 border-r-gray-800'}
+                  w-10 h-10 flex items-center justify-center cursor-pointer bg-white
+                  border
+                  ${isSelected || isPartnerSelected ? 'border-2' : 'border-[0.5px]'}
+                  ${rowIndex % 3 === 2 && rowIndex !== 8 ? 'border-b-2 border-b-gray-800' : ''}
+                  ${colIndex % 3 === 2 && colIndex !== 8 ? 'border-r-2 border-r-gray-800' : ''}
                 `}
               >
                 {cell !== 0 && cell}
@@ -166,7 +248,7 @@ export default function CollaborativeSudoku() {
         ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2 mt-4">
         {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(number => (
           <button
             key={number}
