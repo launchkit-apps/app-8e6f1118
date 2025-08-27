@@ -1,6 +1,21 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, set, onValue, get, update } from 'firebase/database';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA5g9yqQyAFVZwT0_4pHtbVWFHtL9dGG6k",
+  authDomain: "collaborative-sudoku-app.firebaseapp.com",
+  projectId: "collaborative-sudoku-app",
+  storageBucket: "collaborative-sudoku-app.appspot.com",
+  messagingSenderId: "581555789123",
+  appId: "1:581555789123:web:d8e45678901234567890ab",
+  databaseURL: "https://collaborative-sudoku-app-default-rtdb.firebaseio.com"
+};
+
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
 
 export default function CollaborativeSudoku() {
   const [gameCode, setGameCode] = useState<string>('');
@@ -93,21 +108,38 @@ export default function CollaborativeSudoku() {
     return true;
   };
 
-  const handleCreateGame = () => {
+  const handleCreateGame = async () => {
     if (!playerName) {
       alert('Please enter your name');
       return;
     }
     const newGameCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     const newSeed = Date.now().toString();
+    const initialBoard = generateSudokuWithSeed(difficulty, newSeed);
+    
+    await set(ref(database, `games/${newGameCode}`), {
+      board: initialBoard,
+      solution: solution,
+      seed: newSeed,
+      difficulty,
+      players: {
+        [playerName]: {
+          color: playerColor,
+          activeCell: null
+        }
+      },
+      errors: 0,
+      gameTime: 0,
+      startTime: Date.now()
+    });
+
     setSeed(newSeed);
     setGameCode(newGameCode);
-    const initialBoard = generateSudokuWithSeed(difficulty, newSeed);
     setBoard(initialBoard);
     setGameState('game');
   };
 
-  const handleJoinGame = () => {
+  const handleJoinGame = async () => {
     if (!playerName) {
       alert('Please enter your name');
       return;
@@ -116,41 +148,55 @@ export default function CollaborativeSudoku() {
       alert('Please enter a game code');
       return;
     }
+
+    const gameRef = ref(database, `games/${joinCode}`);
+    const snapshot = await get(gameRef);
+    
+    if (!snapshot.exists()) {
+      alert('Game not found!');
+      return;
+    }
+
+    const gameData = snapshot.val();
+    
+    await update(gameRef, {
+      [`players/${playerName}`]: {
+        color: playerColor,
+        activeCell: null
+      }
+    });
+
     setGameCode(joinCode);
-    const joinSeed = Date.now().toString();
-    setSeed(joinSeed);
-    const initialBoard = generateSudokuWithSeed(difficulty, joinSeed);
-    setBoard(initialBoard);
+    setBoard(gameData.board);
+    setSolution(gameData.solution);
+    setSeed(gameData.seed);
     setGameState('game');
   };
 
-  const handleNumberInput = (number: number) => {
+  const handleNumberInput = async (number: number) => {
     if (!selectedCell) return;
     const { row, col } = selectedCell;
     const isValid = solution[row][col] === number;
     
-    if (!isValid) {
-      setErrors(prev => {
-        const newErrors = prev + 1;
-        if (newErrors >= 3) {
-          alert('Game Over - Too many errors!');
-        }
-        return newErrors;
-      });
-    }
-
     const newBoard = [...board];
     newBoard[row][col] = number;
-    setBoard(newBoard);
+    
+    await update(ref(database, `games/${gameCode}`), {
+      board: newBoard,
+      errors: isValid ? errors : errors + 1
+    });
     
     if (!gameStarted) {
       setGameStarted(true);
     }
   };
 
-  const handleCellClick = (row: number, col: number) => {
+  const handleCellClick = async (row: number, col: number) => {
     if (board[row][col] === 0) {
       setSelectedCell({ row, col });
+      await update(ref(database, `games/${gameCode}/players/${playerName}`), {
+        activeCell: { row, col }
+      });
     }
   };
 
@@ -161,14 +207,29 @@ export default function CollaborativeSudoku() {
   };
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (gameStarted) {
-      interval = setInterval(() => {
-        setGameTime(prev => prev + 1);
-      }, 1000);
+    if (gameState === 'game' && gameCode) {
+      const gameRef = ref(database, `games/${gameCode}`);
+      const unsubscribe = onValue(gameRef, (snapshot) => {
+        const gameData = snapshot.val();
+        if (gameData) {
+          setBoard(gameData.board);
+          setErrors(gameData.errors);
+          setGameTime(Math.floor((Date.now() - gameData.startTime) / 1000));
+          
+          const players = Object.entries(gameData.players);
+          const partner = players.find(([name]) => name !== playerName);
+          if (partner) {
+            setPartnerActiveCell({
+              ...partner[1].activeCell,
+              color: partner[1].color
+            });
+          }
+        }
+      });
+
+      return () => unsubscribe();
     }
-    return () => clearInterval(interval);
-  }, [gameStarted]);
+  }, [gameState, gameCode, playerName]);
 
   if (gameState === 'lobby') {
     return (
