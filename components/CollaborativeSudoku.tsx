@@ -1,21 +1,12 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, set, onValue, get, update } from 'firebase/database';
+import { createClient } from '@supabase/supabase-js';
 
-const firebaseConfig = {
-  apiKey: "AIzaSyA5g9yqQyAFVZwT0_4pHtbVWFHtL9dGG6k",
-  authDomain: "collaborative-sudoku-app.firebaseapp.com",
-  projectId: "collaborative-sudoku-app",
-  storageBucket: "collaborative-sudoku-app.appspot.com",
-  messagingSenderId: "581555789123",
-  appId: "1:581555789123:web:d8e45678901234567890ab",
-  databaseURL: "https://collaborative-sudoku-app-default-rtdb.firebaseio.com"
-};
-
-const app = initializeApp(firebaseConfig);
-const database = getDatabase(app);
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function CollaborativeSudoku() {
   const [gameCode, setGameCode] = useState<string>('');
@@ -117,21 +108,29 @@ export default function CollaborativeSudoku() {
     const newSeed = Date.now().toString();
     const initialBoard = generateSudokuWithSeed(difficulty, newSeed);
     
-    await set(ref(database, `games/${newGameCode}`), {
-      board: initialBoard,
-      solution: solution,
-      seed: newSeed,
-      difficulty,
-      players: {
-        [playerName]: {
-          color: playerColor,
-          activeCell: null
-        }
-      },
-      errors: 0,
-      gameTime: 0,
-      startTime: Date.now()
-    });
+    const { error } = await supabase
+      .from('games')
+      .insert([{
+        code: newGameCode,
+        board: initialBoard,
+        solution: solution,
+        seed: newSeed,
+        difficulty,
+        players: {
+          [playerName]: {
+            color: playerColor,
+            activeCell: null
+          }
+        },
+        errors: 0,
+        game_time: 0,
+        start_time: new Date().toISOString()
+      }]);
+
+    if (error) {
+      alert('Error creating game');
+      return;
+    }
 
     setSeed(newSeed);
     setGameCode(newGameCode);
@@ -149,22 +148,34 @@ export default function CollaborativeSudoku() {
       return;
     }
 
-    const gameRef = ref(database, `games/${joinCode}`);
-    const snapshot = await get(gameRef);
-    
-    if (!snapshot.exists()) {
+    const { data: gameData, error } = await supabase
+      .from('games')
+      .select('*')
+      .eq('code', joinCode)
+      .single();
+
+    if (error || !gameData) {
       alert('Game not found!');
       return;
     }
 
-    const gameData = snapshot.val();
-    
-    await update(gameRef, {
-      [`players/${playerName}`]: {
-        color: playerColor,
-        activeCell: null
-      }
-    });
+    const { error: updateError } = await supabase
+      .from('games')
+      .update({
+        players: {
+          ...gameData.players,
+          [playerName]: {
+            color: playerColor,
+            activeCell: null
+          }
+        }
+      })
+      .eq('code', joinCode);
+
+    if (updateError) {
+      alert('Error joining game');
+      return;
+    }
 
     setGameCode(joinCode);
     setBoard(gameData.board);
@@ -181,10 +192,18 @@ export default function CollaborativeSudoku() {
     const newBoard = [...board];
     newBoard[row][col] = number;
     
-    await update(ref(database, `games/${gameCode}`), {
-      board: newBoard,
-      errors: isValid ? errors : errors + 1
-    });
+    const { error } = await supabase
+      .from('games')
+      .update({
+        board: newBoard,
+        errors: isValid ? errors : errors + 1
+      })
+      .eq('code', gameCode);
+
+    if (error) {
+      alert('Error updating game');
+      return;
+    }
     
     if (!gameStarted) {
       setGameStarted(true);
@@ -194,9 +213,17 @@ export default function CollaborativeSudoku() {
   const handleCellClick = async (row: number, col: number) => {
     if (board[row][col] === 0) {
       setSelectedCell({ row, col });
-      await update(ref(database, `games/${gameCode}/players/${playerName}`), {
-        activeCell: { row, col }
-      });
+      
+      const { error } = await supabase
+        .from('games')
+        .update({
+          [`players.${playerName}.activeCell`]: { row, col }
+        })
+        .eq('code', gameCode);
+
+      if (error) {
+        alert('Error updating cell selection');
+      }
     }
   };
 
@@ -208,26 +235,35 @@ export default function CollaborativeSudoku() {
 
   useEffect(() => {
     if (gameState === 'game' && gameCode) {
-      const gameRef = ref(database, `games/${gameCode}`);
-      const unsubscribe = onValue(gameRef, (snapshot) => {
-        const gameData = snapshot.val();
-        if (gameData) {
-          setBoard(gameData.board);
-          setErrors(gameData.errors);
-          setGameTime(Math.floor((Date.now() - gameData.startTime) / 1000));
-          
-          const players = Object.entries(gameData.players);
-          const partner = players.find(([name]) => name !== playerName);
-          if (partner) {
-            setPartnerActiveCell({
-              ...partner[1].activeCell,
-              color: partner[1].color
-            });
+      const gameSubscription = supabase
+        .channel(`game_${gameCode}`)
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'games',
+          filter: `code=eq.${gameCode}`
+        }, payload => {
+          const gameData = payload.new;
+          if (gameData) {
+            setBoard(gameData.board);
+            setErrors(gameData.errors);
+            setGameTime(Math.floor((Date.now() - new Date(gameData.start_time).getTime()) / 1000));
+            
+            const players = Object.entries(gameData.players);
+            const partner = players.find(([name]) => name !== playerName);
+            if (partner) {
+              setPartnerActiveCell({
+                ...partner[1].activeCell,
+                color: partner[1].color
+              });
+            }
           }
-        }
-      });
+        })
+        .subscribe();
 
-      return () => unsubscribe();
+      return () => {
+        supabase.removeChannel(gameSubscription);
+      };
     }
   }, [gameState, gameCode, playerName]);
 
